@@ -1,10 +1,9 @@
-name: Extract Docker Image and Release
+name: Scheduled Docker Extract and Release
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - v*
+  schedule:
+    - cron: '0 0 */2 * *'  # 每两天UTC时间00:00运行
 
 jobs:
   release:
@@ -16,11 +15,26 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Extract files from Docker image
+    - name: Extract Docker image digest
       run: |
         docker pull earnfm/earnfm-client
-        CONTAINER_ID=$(docker create earnfm/earnfm-client)
+        DIGEST=$(docker inspect earnfm/earnfm-client --format '{{index .RepoDigests 0}}' | cut -d'@' -f2)
+        echo "DIGEST=${DIGEST}" >> $GITHUB_ENV
+        echo "TAG_NAME=EarnFM-${DIGEST}" >> $GITHUB_ENV
+
+    - name: Create and push tags
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git tag $TAG_NAME
+        git push origin $TAG_NAME
+        git tag -f latest
+        git push origin latest --force
+
+    - name: Extract files from Docker image
+      run: |
         mkdir -p app_files
+        CONTAINER_ID=$(docker create earnfm/earnfm-client)
         docker cp $CONTAINER_ID:/app ./app_files/
         sudo chown -R $(id -u):$(id -g) ./app_files
         docker rm $CONTAINER_ID
@@ -31,11 +45,21 @@ jobs:
     - name: Compress files
       run: cd app_files && zip -r ../earnfm.zip .
 
-    - name: Create Release and Upload Asset
+    - name: Upload to Digest Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ github.ref_name }}
-        name: Release ${{ github.ref_name }}
+        tag_name: ${{ env.TAG_NAME }}
+        name: earnfm-client
         files: earnfm.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload to Latest Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: latest
+        name: earnfm-client
+        files: earnfm.zip
+        overwrite: true  # 覆盖已有latest发布
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
