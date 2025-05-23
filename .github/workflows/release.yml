@@ -1,15 +1,16 @@
 name: Scheduled Docker Extract and Release
 
 on:
-  workflow_dispatch:
   schedule:
     - cron: '0 0 */2 * *'  # 每两天UTC时间00:00运行
+  workflow_dispatch:  # 添加手动触发支持
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: read  # 添加Docker镜像读取权限
 
     steps:
     - name: Checkout code
@@ -18,14 +19,22 @@ jobs:
     - name: Extract Docker image digest
       run: |
         docker pull earnfm/earnfm-client
-        DIGEST=$(docker inspect earnfm/earnfm-client --format '{{index .RepoDigests 0}}' | cut -d'@' -f2)
-        echo "DIGEST=${DIGEST}" >> $GITHUB_ENV
-        echo "TAG_NAME=EarnFM-${DIGEST}" >> $GITHUB_ENV
+        # 优化后的Digest提取逻辑
+        FULL_DIGEST=$(docker inspect earnfm/earnfm-client --format '{{index .RepoDigests 0}}')
+        SHORT_DIGEST=$(echo "${FULL_DIGEST#*@sha256:}" | cut -c1-12)
+        echo "DIGEST=${SHORT_DIGEST}" >> $GITHUB_ENV
+        echo "TAG_NAME=EarnFM-${SHORT_DIGEST}" >> $GITHUB_ENV
 
     - name: Create and push tags
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
+        # 配置带认证的git命令
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
+        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        
+        # 创建并推送双标签
         git tag $TAG_NAME
         git push origin $TAG_NAME
         git tag -f latest
@@ -34,10 +43,10 @@ jobs:
     - name: Extract files from Docker image
       run: |
         mkdir -p app_files
-        CONTAINER_ID=$(docker create earnfm/earnfm-client)
+        CONTAINER_ID=$(docker create --rm earnfm/earnfm-client)  # 添加自动清理容器
         docker cp $CONTAINER_ID:/app ./app_files/
         sudo chown -R $(id -u):$(id -g) ./app_files
-        docker rm $CONTAINER_ID
+        docker rm $CONTAINER_ID >/dev/null
 
     - name: Install zip
       run: sudo apt-get install -y zip
@@ -60,6 +69,6 @@ jobs:
         tag_name: latest
         name: earnfm-client
         files: earnfm.zip
-        overwrite: true  # 覆盖已有latest发布
+        overwrite: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
