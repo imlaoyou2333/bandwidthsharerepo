@@ -52,7 +52,7 @@ jobs:
       run: cd app_files && zip -r ../earnfm.zip .
 
     - name: Upload Digest Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ env.TAG_NAME }}
         name: "earnfm-client (Build ${{ env.SHORT_DIGEST }})"
@@ -62,7 +62,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Update Latest Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: latest
         files: earnfm.zip
